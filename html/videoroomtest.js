@@ -44,13 +44,13 @@
 //
 var server = null;
 if(window.location.protocol === 'http:')
-	server = "http://" +  "54.180.150.241" + "/janus";
+	server = "http://" +  "172.31.38.51" + "/janus";
 else
-	server = "https://" + "54.180.150.241" + "/janus";
+	server = "https://" + "172.31.38.51" + "/janus";
 
 var janus = null;
 var sfutest = null;
-var opaqueId = "videoroomtest-"+Janus.randomString(12);
+var opaqueId = "videoroomtest-"+Janus.randomString(12);  // opaqueId 값을 통해서 유저 구분을 한다.
 
 var myroom = 1234;	// Demo room
 if(getQueryStringValue("room") !== "")
@@ -91,7 +91,7 @@ $(document).ready(function() {
 								opaqueId: opaqueId,
 								success: function(pluginHandle) {
 									$('#details').remove();
-									sfutest = pluginHandle;
+									sfutest = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
 									Janus.log("Plugin attached! (" + sfutest.getPlugin() + ", id=" + sfutest.getId() + ")");
 									Janus.log("  -- This is a publisher/manager");
 									// Prepare the username registration
@@ -114,7 +114,7 @@ $(document).ready(function() {
 									if(on) {
 										// Darken screen and show hint
 										$.blockUI({
-											message: '<div><img src="up_arrow.png"/></div>',
+											message: '',
 											css: {
 												border: 'none',
 												padding: '15px',
