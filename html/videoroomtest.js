@@ -284,6 +284,7 @@ $(document).ready(function() {
 									}
 								},
 								onlocalstream: function(stream) {
+									Janus.debug("onlocalstream 실행 !");
 									Janus.debug(" ::: Got a local stream :::", stream);
 									mystream = stream;
 									$('#videojoin').hide();
@@ -549,7 +550,7 @@ function newRemoteFeed(id, display, audio, video) {
 							jsep: jsep,
 							// Add data:true here if you want to subscribe to datachannels as well
 							// (obviously only works if the publisher offered them in the first place)
-							media: { audioSend: true, videoSend: true },	// We want recvonly audio/video
+							media: { audioSend: false, videoSend: false },	// We want recvonly audio/video
 							success: function(jsep) {
 								Janus.debug("Got SDP!", jsep);
 								var body = { request: "start", room: myroom };
