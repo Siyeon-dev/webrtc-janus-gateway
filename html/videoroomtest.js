@@ -303,14 +303,14 @@ $(document).ready(function() {
 									$("#myvideo").get(0).muted = "muted";
 									if(sfutest.webrtcStuff.pc.iceConnectionState !== "completed" &&
 											sfutest.webrtcStuff.pc.iceConnectionState !== "connected") {
-										$("#videolocal").parent().parent().block({
-											message: '<b>Publishing...</b>',
-											css: {
-												border: 'none',
-												backgroundColor: 'transparent',
-												color: 'white'
-											}
-										});
+										// $("#videolocal").parent().parent().block({
+										// 	message: '<b>Publishing...</b>',
+										// 	css: {
+										// 		border: 'none',
+										// 		backgroundColor: 'transparent',
+										// 		color: 'white'
+										// 	}
+										// });
 									}
 									var videoTracks = stream.getVideoTracks();
 									if(!videoTracks || videoTracks.length === 0) {
