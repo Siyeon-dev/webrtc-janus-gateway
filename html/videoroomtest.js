@@ -46,7 +46,7 @@ var server = null;
 if(window.location.protocol === 'http:')
 	server = "http://" +  "52.79.253.81" + ":8088/janus";
 else
-	server = "https://" + "52.79.253.81" + ":8088/janus";
+	server = "http://" + "52.79.253.81" + ":8088/janus";
 
 var janus = null;
 var sfutest = null;
