@@ -44,9 +44,9 @@
 //
 var server = null;
 if(window.location.protocol === 'http:')
-	server = "http://" +  "re-coder.net" + "/janus";
+	server = "http://" +  "re-coder.net" + "8088/janus";
 else
-	server = "https://" + "re-coder.net" + "/janus";
+	server = "https://" + "re-coder.net" + "8088/janus";
 
 var janus = null;
 var screentest = null;
