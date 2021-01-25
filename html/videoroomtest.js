@@ -73,13 +73,17 @@ $(document).ready(function() {
 	Janus.init({debug: "all", callback: function() {
 		// Use a button to start the demo
 		$('#start').one('click', function() {
+			// start button click 되었을 때, 해당 버튼 disabled 하고, click 이벤트 리스너를 해제한다.
 			$(this).attr('disabled', true).unbind('click');
 			// Make sure the browser supports WebRTC
 			if(!Janus.isWebrtcSupported()) {
 				bootbox.alert("No WebRTC support... ");
 				return;
 			}
+			// 세션 생성
 			// Create session
+			// Janus-gateway는 Plugin을 이용하는 클라이언트를 session 으로 관리한다. 
+			// session 을 통해 특정 plugin 을 이용하기 위한 요청을 보낸다. 
 			janus = new Janus(
 				{
 					server: server,
@@ -90,11 +94,11 @@ $(document).ready(function() {
 								plugin: "janus.plugin.videoroom",
 								opaqueId: opaqueId,
 								success: function(pluginHandle) {
-									$('#details').remove();
 									sfutest = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
 									Janus.log("Plugin attached! (" + sfutest.getPlugin() + ", id=" + sfutest.getId() + ")");
-									Janus.log("  -- This is a publisher/manager");
+									Janus.log("  -- This is a publisher/manager 테스트합니다.--");
 									// Prepare the username registration
+									// 방에 접속하기 전에 join 버튼과 nickname 입력 html tag가 가려진다.
 									$('#videojoin').removeClass('hide').show();
 									$('#registernow').removeClass('hide').show();
 									$('#register').click(registerUsername);
@@ -284,11 +288,13 @@ $(document).ready(function() {
 									}
 								},
 								onlocalstream: function(stream) {
-									Janus.debug("onlocalstream 실행 !");
+									console.log("onlocalstream 실행 !");
 									Janus.debug(" ::: Got a local stream :::", stream);
 									mystream = stream;
 									$('#videojoin').hide();
 									$('#videos').removeClass('hide').show();
+									// <<-- 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
+									// 			여기서 Screen Sharing video tag를 생성해서 함께 띄울 환경 마련
 									if($('#myvideo').length === 0) {
 										$('#videolocal').append('<video class="rounded centered" id="myvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
 										// Add a 'mute' button
@@ -301,6 +307,7 @@ $(document).ready(function() {
 									$('#publisher').removeClass('hide').html(myusername).show();
 									Janus.attachMediaStream($('#myvideo').get(0), stream);
 									$("#myvideo").get(0).muted = "muted";
+									// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
 									if(sfutest.webrtcStuff.pc.iceConnectionState !== "completed" &&
 											sfutest.webrtcStuff.pc.iceConnectionState !== "connected") {
 										// $("#videolocal").parent().parent().block({
@@ -376,6 +383,7 @@ function registerUsername() {
 		$('#username').attr('disabled', true);
 		$('#register').attr('disabled', true).unbind('click');
 		var username = $('#username').val();
+		// username 유효성 검사 1 (빈 문자열)
 		if(username === "") {
 			$('#you')
 				.removeClass().addClass('label label-warning')
@@ -384,6 +392,7 @@ function registerUsername() {
 			$('#register').removeAttr('disabled').click(registerUsername);
 			return;
 		}
+		// username 유효성 검사 2 (a-z/ A-Z/ 0-9의 문자만 받을 것)
 		if(/[^a-zA-Z0-9]/.test(username)) {
 			$('#you')
 				.removeClass().addClass('label label-warning')
@@ -392,12 +401,16 @@ function registerUsername() {
 			$('#register').removeAttr('disabled').click(registerUsername);
 			return;
 		}
+		// username 유효성 검사를 마치고 나면 register 객체 작성 후 
+		// .send() 매서드로 Janus-Gateway에 해당 API 호출
 		var register = {
 			request: "join",
 			room: myroom,
 			ptype: "publisher",
 			display: username
 		};
+
+		
 		myusername = username;
 		sfutest.send({ message: register });
 	}
