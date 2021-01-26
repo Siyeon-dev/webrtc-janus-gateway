@@ -304,9 +304,16 @@ $(document).ready(function() {
 										$('#mute').click(toggleMute);
 										// Add an 'unpublish' button
 										$('#videolocal').append('<button class="btn btn-warning btn-xs" id="unpublish" style="position: absolute; bottom: 0px; right: 0px; margin: 15px;">Unpublish</button>');
+										// Add an Screen tag
+										$('#videolocal').append('<video class="rounded centered" id="screenvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
 										$('#unpublish').click(unpublishOwnFeed);
 									}
 									$('#publisher').removeClass('hide').html(myusername).show();
+
+									//<<-- test
+									alert(JSON.stringify(stream));
+									//-->> test
+
 									Janus.attachMediaStream($('#myvideo').get(0), stream);
 									$("#myvideo").get(0).muted = "muted";
 									// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
@@ -424,7 +431,7 @@ function publishOwnFeed(useAudio) {
 	sfutest.createOffer(
 		{
 			// Add data:true here if you want to publish datachannels as well
-			media: { audioRecv: false, videoRecv: false, audioSend: useAudio, videoSend: true },	// Publishers are sendonly
+			media: {video: "screen", audioRecv: false, videoRecv: false, audioSend: useAudio, videoSend: true },	// Publishers are sendonly
 			// If you want to test simulcasting (Chrome and Firefox only), then
 			// pass a ?simulcast=true when opening this demo page: it will turn
 			// the following 'simulcast' property to pass to janus.js to true
@@ -523,13 +530,15 @@ function newRemoteFeed(id, display, audio, video) {
 				} else if(event) {
 					if(event === "attached") {
 						// Subscriber created and attached
+						// feeds 배열의 빈 공간에 remoteFeed (Plugin Handler) 추가
 						for(var i=1;i<6;i++) {
 							if(!feeds[i]) {
 								feeds[i] = remoteFeed;
-								remoteFeed.rfindex = i;
+								remoteFeed.rfindex = i; // remoteFeed에 번호 속성 추가
 								break;
 							}
 						}
+						// <<-- remoteFeed가 들어오고 방에 접속하기까지의 과정
 						remoteFeed.rfid = msg["id"];
 						remoteFeed.rfdisplay = msg["display"];
 						if(!remoteFeed.spinner) {
@@ -540,6 +549,7 @@ function newRemoteFeed(id, display, audio, video) {
 						}
 						Janus.log("Successfully attached to feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") in room " + msg["room"]);
 						$('#remote'+remoteFeed.rfindex).removeClass('hide').html(remoteFeed.rfdisplay).show();
+						// -->> remoteFeed가 들어오고 방에 접속하기까지의 과정
 					} else if(event === "event") {
 						// Check if we got a simulcast-related event from this publisher
 						var substream = msg["substream"];
@@ -598,6 +608,7 @@ function newRemoteFeed(id, display, audio, video) {
 					$('#videoremote'+remoteFeed.rfindex).append(
 						'<span class="label label-primary hide" id="curres'+remoteFeed.rfindex+'" style="position: absolute; bottom: 0px; left: 0px; margin: 15px;"></span>' +
 						'<span class="label label-info hide" id="curbitrate'+remoteFeed.rfindex+'" style="position: absolute; bottom: 0px; right: 0px; margin: 15px;"></span>');
+					// <<-- remoteStream 데이터 붙이기 전 준비 작업
 					// Show the video, hide the spinner and show the resolution when we get a playing event
 					$("#remotevideo"+remoteFeed.rfindex).bind("playing", function () {
 						if(remoteFeed.spinner)
@@ -618,6 +629,7 @@ function newRemoteFeed(id, display, audio, video) {
 							}, 2000);
 						}
 					});
+					// -->> remoteStream 데이터 붙이기 전 준비 작업
 				}
 				Janus.attachMediaStream($('#remotevideo'+remoteFeed.rfindex).get(0), stream);
 				var videoTracks = stream.getVideoTracks();
