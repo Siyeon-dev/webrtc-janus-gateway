@@ -176,6 +176,7 @@ $(document).ready(function() {
 												publishOwnFeed(true);
 											}
 											// Any new feed to attach to?
+											// publisher가 최초로 참가했을 때, 기존에 방에 존재하던 참가자들의 리스트를 출력
 											if(msg["publishers"]) {
 												var list = msg["publishers"];
 												Janus.debug("Got a list of available publishers/feeds:", list);
@@ -194,6 +195,7 @@ $(document).ready(function() {
 											bootbox.alert("The room has been destroyed", function() {
 												window.location.reload();
 											});
+											// 이미 publisher가 들어가 있는 상태에서 event 발생한 경우 ex) 참가자 추가
 										} else if(event === "event") {
 											// Any new feed to attach to?
 											if(msg["publishers"]) {
