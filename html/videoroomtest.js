@@ -1089,7 +1089,7 @@ function newScreenRemoteFeed(id, display) {
 						$('#screenvideo').removeClass('hide');
 						if(spinner)
 							spinner.stop();
-						spinner = null;
+
 					});
 				}
 				
@@ -1166,7 +1166,7 @@ function newScreenRemoteFeed(id, display) {
 				$('#waitingvideo').remove();
 				if(spinner)
 					spinner.stop();
-				spinner = null;
+
 			}
 		});
 }
