@@ -1,47 +1,3 @@
-// We make use of this 'server' variable to provide the address of the
-// REST Janus API. By default, in this example we assume that Janus is
-// co-located with the web server hosting the HTML pages but listening
-// on a different port (8088, the default for HTTP in Janus), which is
-// why we make use of the 'window.location.hostname' base address. Since
-// Janus can also do HTTPS, and considering we don't really want to make
-// use of HTTP for Janus if your demos are served on HTTPS, we also rely
-// on the 'window.location.protocol' prefix to build the variable, in
-// particular to also change the port used to contact Janus (8088 for
-// HTTP and 8089 for HTTPS, if enabled).
-// In case you place Janus behind an Apache frontend (as we did on the
-// online demos at http://janus.conf.meetecho.com) you can just use a
-// relative path for the variable, e.g.:
-//
-// 		var server = "/janus";
-//
-// which will take care of this on its own.
-//
-//
-// If you want to use the WebSockets frontend to Janus, instead, you'll
-// have to pass a different kind of address, e.g.:
-//
-// 		var server = "ws://" + window.location.hostname + ":8188";
-//
-// Of course this assumes that support for WebSockets has been built in
-// when compiling the server. WebSockets support has not been tested
-// as much as the REST API, so handle with care!
-//
-//
-// If you have multiple options available, and want to let the library
-// autodetect the best way to contact your server (or pool of servers),
-// you can also pass an array of servers, e.g., to provide alternative
-// means of access (e.g., try WebSockets first and, if that fails, fall
-// back to plain HTTP) or just have failover servers:
-//
-//		var server = [
-//			"ws://" + window.location.hostname + ":8188",
-//			"/janus"
-//		];
-//
-// This will tell the library to try connecting to each of the servers
-// in the presented order. The first working server will be used for
-// the whole session.
-//
 var server = null;
 if(window.location.protocol === 'http:')
 	server = "http://" +  "re-coder.net" + "/janus";
@@ -49,19 +5,28 @@ else
 	server = "https://" + "re-coder.net" + "/janus";
 
 var janus = null;
+
 var sfutest = null;
+var screenHandle = null;
+
 var opaqueId = "videoroomtest-"+Janus.randomString(12);  // opaqueId 값을 통해서 유저 구분을 한다.
 
 var myroom = 1234;	// Demo room
+
 if(getQueryStringValue("room") !== "")
 	myroom = parseInt(getQueryStringValue("room"));
+
 var myusername = null;
 var myid = null;
+var role = null;
+
 var mystream = null;
 // We use this other ID just to map our subscriptions to us
 var mypvtid = null;
 
 var feeds = [];
+var screenFeeds = [];
+
 var bitrateTimer = [];
 
 var doSimulcast = (getQueryStringValue("simulcast") === "yes" || getQueryStringValue("simulcast") === "true");
@@ -97,6 +62,7 @@ $(document).ready(function() {
 									sfutest = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
 									Janus.log("Plugin attached! (" + sfutest.getPlugin() + ", id=" + sfutest.getId() + ")");
 									Janus.log("  -- This is a publisher/manager 테스트합니다.--");
+
 									// Prepare the username registration
 									// 방에 접속하기 전에 join 버튼과 nickname 입력 html tag가 가려진다.
 									$('#videojoin').removeClass('hide').show();
@@ -108,6 +74,8 @@ $(document).ready(function() {
 											$(this).attr('disabled', true);
 											janus.destroy();
 										});
+
+									// screen sharing 호출
 								},
 								error: function(error) {
 									Janus.error("  -- Error attaching plugin...", error);
@@ -168,7 +136,7 @@ $(document).ready(function() {
 											// Publisher/manager created, negotiate WebRTC and attach to existing feeds, if any
 											myid = msg["id"];
 											mypvtid = msg["private_id"];
-											Janus.log("Successfully joined room " + msg["room"] + " with ID " + myid);
+											Janus.log("Successfully joined room " + msg["room"] + " with ID " + myid + " prvate_id " + mypvtid);
 											if(subscriber_mode) {
 												$('#videojoin').hide();
 												$('#videos').removeClass('hide').show();
@@ -186,7 +154,10 @@ $(document).ready(function() {
 													var audio = list[f]["audio_codec"];
 													var video = list[f]["video_codec"];
 													Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-													newRemoteFeed(id, display, audio, video);
+													console.log("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
+													// Screen User가 아닌 경우에만 RemoteFeed 추가
+													if (id != 1234)
+														newRemoteFeed(id, display, audio, video);
 												}
 											}
 										} else if(event === "destroyed") {
@@ -207,7 +178,9 @@ $(document).ready(function() {
 													var audio = list[f]["audio_codec"];
 													var video = list[f]["video_codec"];
 													Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-													newRemoteFeed(id, display, audio, video);
+													// Screen User가 아닌 경우에만 RemoteFeed 추가
+													if (id != 1234)
+														newRemoteFeed(id, display, audio, video);
 												}
 											} else if(msg["leaving"]) {
 												// One of the publishers has gone away?
@@ -310,8 +283,6 @@ $(document).ready(function() {
 										$('#mute').click(toggleMute);
 										// Add an 'unpublish' button
 										$('#videolocal').append('<button class="btn btn-warning btn-xs" id="unpublish" style="position: absolute; bottom: 0px; right: 0px; margin: 15px;">Unpublish</button>');
-										// Add an Screen tag
-										$('#videolocal').append('<video class="rounded centered" id="screenvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
 										$('#unpublish').click(unpublishOwnFeed);
 									}
 									$('#publisher').removeClass('hide').html(myusername).show();
@@ -320,7 +291,7 @@ $(document).ready(function() {
 									//-->> test
 
 									Janus.attachMediaStream($('#myvideo').get(0), stream);
-									Janus.attachMediaStream($('#screenvideo').get(0), stream);
+									
 									$("#myvideo").get(0).muted = "muted";
 									// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
 									if(sfutest.webrtcStuff.pc.iceConnectionState !== "completed" &&
@@ -349,6 +320,9 @@ $(document).ready(function() {
 										$('#videolocal .no-video-container').remove();
 										$('#myvideo').removeClass('hide').show();
 									}
+
+									
+									localScreenFeed();
 								},
 								onremotestream: function(stream) {
 									// The publisher stream is sendonly, we don't expect anything here
@@ -461,7 +435,7 @@ function publishOwnFeed(useAudio) {
 			error: function(error) {
 				Janus.error("WebRTC error:", error);
 				if(useAudio) {
-					 publishOwnFeed(false);
+					publishOwnFeed(false);
 				} else {
 					bootbox.alert("WebRTC error... " + error.message);
 					$('#publish').removeAttr('disabled').click(function() { publishOwnFeed(true); });
@@ -469,6 +443,24 @@ function publishOwnFeed(useAudio) {
 			}
 		});
 }
+
+function publishOwnScreenFeed() {
+	// Publish our stream
+	screenHandle.createOffer(
+		{
+			media: { video: "screen", audioSend: false, videoRecv: false},	// Publishers are sendonly
+			success: function(jsep) {
+				Janus.debug("Got publisher SDP!", jsep);
+				var publish = { request: "configure", audio: false , video: true };
+				screenHandle.send({ message: publish, jsep: jsep });
+			},
+			error: function(error) {
+				Janus.error("WebRTC error:", error);
+				bootbox.alert("WebRTC error... " + error.message);
+			}
+		});
+}
+
 
 function toggleMute() {
 	var muted = sfutest.isAudioMuted();
@@ -487,265 +479,6 @@ function unpublishOwnFeed() {
 	var unpublish = { request: "unpublish" };
 	sfutest.send({ message: unpublish });
 }
-
-// fucntion localScreenFeed(id, display, audio, video) {
-// 	janus.attach(
-// 		{
-// 			plugin: "janus.plugin.videoroom",
-// 			opaqueId: opaqueId,
-// 			success: function(pluginHandle) {
-// 				sfutest = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
-// 				Janus.log("Plugin attached! (" + sfutest.getPlugin() + ", id=" + sfutest.getId() + ")");
-// 				Janus.log("  -- This is a publisher/manager 테스트합니다.--");
-// 				// Prepare the username registration
-// 				// 방에 접속하기 전에 join 버튼과 nickname 입력 html tag가 가려진다.
-// 				$('#videojoin').removeClass('hide').show();
-// 				$('#registernow').removeClass('hide').show();
-// 				$('#register').click(registerUsername);
-// 				$('#username').focus();
-// 				$('#start').removeAttr('disabled').html("Stop")
-// 					.click(function() {
-// 						$(this).attr('disabled', true);
-// 						janus.destroy();
-// 					});
-// 			},
-// 			error: function(error) {
-// 				Janus.error("  -- Error attaching plugin...", error);
-// 				bootbox.alert("Error attaching plugin... " + error);
-// 			},
-// 			consentDialog: function(on) {
-// 				Janus.debug("Consent dialog should be " + (on ? "on" : "off") + " now");
-// 				if(on) {
-// 					// Darken screen and show hint
-// 					$.blockUI({
-// 						message: '',
-// 						css: {
-// 							border: 'none',
-// 							padding: '15px',
-// 							backgroundColor: 'transparent',
-// 							color: '#aaa',
-// 							top: '10px',
-// 							left: (navigator.mozGetUserMedia ? '-100px' : '300px')
-// 						} });
-// 				} else {
-// 					// Restore screen
-// 					$.unblockUI();
-// 				}
-// 			},
-// 			iceState: function(state) {
-// 				Janus.log("ICE state changed to " + state);
-// 			},
-// 			mediaState: function(medium, on) {
-// 				Janus.log("Janus " + (on ? "started" : "stopped") + " receiving our " + medium);
-// 			},
-// 			webrtcState: function(on) {
-// 				Janus.log("Janus says our WebRTC PeerConnection is " + (on ? "up" : "down") + " now");
-// 				$("#videolocal").parent().parent().unblock();
-// 				if(!on)
-// 					return;
-// 				$('#publish').remove();
-// 				// This controls allows us to override the global room bitrate cap
-// 				$('#bitrate').parent().parent().removeClass('hide').show();
-// 				$('#bitrate a').click(function() {
-// 					var id = $(this).attr("id");
-// 					var bitrate = parseInt(id)*1000;
-// 					if(bitrate === 0) {
-// 						Janus.log("Not limiting bandwidth via REMB");
-// 					} else {
-// 						Janus.log("Capping bandwidth to " + bitrate + " via REMB");
-// 					}
-// 					$('#bitrateset').html($(this).html() + '<span class="caret"></span>').parent().removeClass('open');
-// 					sfutest.send({ message: { request: "configure", bitrate: bitrate }});
-// 					return false;
-// 				});
-// 			},
-// 			onmessage: function(msg, jsep) {
-// 				Janus.debug(" ::: Got a message (publisher) :::", msg);
-// 				var event = msg["videoroom"];
-// 				Janus.debug("Event: " + event);
-// 				if(event) {
-// 					if(event === "joined") {
-// 						// Publisher/manager created, negotiate WebRTC and attach to existing feeds, if any
-// 						myid = msg["id"];
-// 						mypvtid = msg["private_id"];
-// 						Janus.log("Successfully joined room " + msg["room"] + " with ID " + myid);
-// 						if(subscriber_mode) {
-// 							$('#videojoin').hide();
-// 							$('#videos').removeClass('hide').show();
-// 						} else {
-// 							publishOwnFeed(true);
-// 						}
-// 						// Any new feed to attach to?
-// 						// publisher가 최초로 참가했을 때, 기존에 방에 존재하던 참가자들의 리스트를 출력
-// 						if(msg["publishers"]) {
-// 							var list = msg["publishers"];
-// 							Janus.debug("Got a list of available publishers/feeds:", list);
-// 							for(var f in list) {
-// 								var id = list[f]["id"];
-// 								var display = list[f]["display"];
-// 								var audio = list[f]["audio_codec"];
-// 								var video = list[f]["video_codec"];
-// 								Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-// 								newRemoteFeed(id, display, audio, video);
-// 							}
-// 						}
-// 					} else if(event === "destroyed") {
-// 						// The room has been destroyed
-// 						Janus.warn("The room has been destroyed!");
-// 						bootbox.alert("The room has been destroyed", function() {
-// 							window.location.reload();
-// 						});
-// 						// 이미 publisher가 들어가 있는 상태에서 event 발생한 경우 ex) 참가자 추가
-// 					} else if(event === "event") {
-// 						// Any new feed to attach to?
-// 						if(msg["publishers"]) {
-// 							var list = msg["publishers"];
-// 							Janus.debug("Got a list of available publishers/feeds:", list);
-// 							for(var f in list) {
-// 								var id = list[f]["id"];
-// 								var display = list[f]["display"];
-// 								var audio = list[f]["audio_codec"];
-// 								var video = list[f]["video_codec"];
-// 								Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-// 								newRemoteFeed(id, display, audio, video);
-// 							}
-// 						} else if(msg["leaving"]) {
-// 							// One of the publishers has gone away?
-// 							var leaving = msg["leaving"];
-// 							Janus.log("Publisher left: " + leaving);
-// 							var remoteFeed = null;
-// 							for(var i=1; i<6; i++) {
-// 								if(feeds[i] && feeds[i].rfid == leaving) {
-// 									remoteFeed = feeds[i];
-// 									break;
-// 								}
-// 							}
-// 							if(remoteFeed != null) {
-// 								Janus.debug("Feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") has left the room, detaching");
-// 								$('#remote'+remoteFeed.rfindex).empty().hide();
-// 								$('#videoremote'+remoteFeed.rfindex).empty();
-// 								feeds[remoteFeed.rfindex] = null;
-// 								remoteFeed.detach();
-// 							}
-// 						} else if(msg["unpublished"]) {
-// 							// One of the publishers has unpublished?
-// 							var unpublished = msg["unpublished"];
-// 							Janus.log("Publisher left: " + unpublished);
-// 							if(unpublished === 'ok') {
-// 								// That's us
-// 								sfutest.hangup();
-// 								return;
-// 							}
-// 							var remoteFeed = null;
-// 							for(var i=1; i<6; i++) {
-// 								if(feeds[i] && feeds[i].rfid == unpublished) {
-// 									remoteFeed = feeds[i];
-// 									break;
-// 								}
-// 							}
-// 							if(remoteFeed != null) {
-// 								Janus.debug("Feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") has left the room, detaching");
-// 								$('#remote'+remoteFeed.rfindex).empty().hide();
-// 								$('#videoremote'+remoteFeed.rfindex).empty();
-// 								feeds[remoteFeed.rfindex] = null;
-// 								remoteFeed.detach();
-// 							}
-// 						} else if(msg["error"]) {
-// 							if(msg["error_code"] === 426) {
-// 								// This is a "no such room" error: give a more meaningful description
-// 								bootbox.alert(
-// 									"<p>Apparently room <code>" + myroom + "</code> (the one this demo uses as a test room) " +
-// 									"does not exist...</p><p>Do you have an updated <code>janus.plugin.videoroom.jcfg</code> " +
-// 									"configuration file? If not, make sure you copy the details of room <code>" + myroom + "</code> " +
-// 									"from that sample in your current configuration file, then restart Janus and try again."
-// 								);
-// 							} else {
-// 								bootbox.alert(msg["error"]);
-// 							}
-// 						}
-// 					}
-// 				}
-// 				if(jsep) {
-// 					Janus.debug("Handling SDP as well...", jsep);
-// 					sfutest.handleRemoteJsep({ jsep: jsep });
-// 					// Check if any of the media we wanted to publish has
-// 					// been rejected (e.g., wrong or unsupported codec)
-// 					var audio = msg["audio_codec"];
-// 					if(mystream && mystream.getAudioTracks() && mystream.getAudioTracks().length > 0 && !audio) {
-// 						// Audio has been rejected
-// 						toastr.warning("Our audio stream has been rejected, viewers won't hear us");
-// 					}
-// 					var video = msg["video_codec"];
-// 					if(mystream && mystream.getVideoTracks() && mystream.getVideoTracks().length > 0 && !video) {
-// 						// Video has been rejected
-// 						toastr.warning("Our video stream has been rejected, viewers won't see us");
-// 						// Hide the webcam video
-// 						$('#myvideo').hide();
-// 						$('#videolocal').append(
-// 							'<div class="no-video-container">' +
-// 								'<i class="fa fa-video-camera fa-5 no-video-icon" style="height: 100%;"></i>' +
-// 								'<span class="no-video-text" style="font-size: 16px;">Video rejected, no webcam</span>' +
-// 							'</div>');
-// 					}
-// 				}
-// 			},
-// 			onlocalstream: function(stream) {
-// 				console.log("onlocalstream(on Screen handle) 실행 !");
-// 				Janus.debug(" ::: Got a local Screen stream :::", stream);
-// 				mystream = stream;
-
-// 				// <<-- 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
-// 				// 			여기서 Screen Sharing video tag를 생성해서 함께 띄울 환경 마련
-// 				if($('#myvideo').length === 1) {
-// 					// Add an Screen tag
-// 					$('#videolocal').append('<video class="rounded centered" id="screenvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
-// 					$('#unpublish').click(unpublishOwnFeed);
-// 				}
-
-// 				Janus.attachMediaStream($('#screenvideo').get(0), stream);
-// 				$("#myvideo").get(0).muted = "muted";
-// 				// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
-// 				if(sfutest.webrtcStuff.pc.iceConnectionState !== "completed" &&
-// 						sfutest.webrtcStuff.pc.iceConnectionState !== "connected") {
-// 					// $("#videolocal").parent().parent().block({
-// 					// 	message: '<b>Publishing...</b>',
-// 					// 	css: {
-// 					// 		border: 'none',
-// 					// 		backgroundColor: 'transparent',
-// 					// 		color: 'white'
-// 					// 	}
-// 					// });
-// 				}
-// 				var videoTracks = stream.getVideoTracks();
-// 				if(!videoTracks || videoTracks.length === 0) {
-// 					// No webcam
-// 					$('#myvideo').hide();
-// 					if($('#videolocal .no-video-container').length === 0) {
-// 						$('#videolocal').append(
-// 							'<div class="no-video-container">' +
-// 								'<i class="fa fa-video-camera fa-5 no-video-icon"></i>' +
-// 								'<span class="no-video-text">No webcam available</span>' +
-// 							'</div>');
-// 					}
-// 				} else {
-// 					$('#videolocal .no-video-container').remove();
-// 					$('#myvideo').removeClass('hide').show();
-// 				}
-// 			},
-// 			onremotestream: function(stream) {
-// 				// The publisher stream is sendonly, we don't expect anything here
-// 			},
-// 			oncleanup: function() {
-// 				Janus.log(" ::: Got a cleanup notification: we are unpublished now :::");
-// 				mystream = null;
-// 				$('#videolocal').html('<button id="publish" class="btn btn-primary">Publish</button>');
-// 				$('#publish').click(function() { publishOwnFeed(true); });
-// 				$("#videolocal").parent().parent().unblock();
-// 				$('#bitrate').parent().parent().addClass('hide');
-// 				$('#bitrate a').unbind('click');
-// 			}
-// 		});
-// }
 
 function newRemoteFeed(id, display, audio, video) {
 	// A new feed has been published, create a new plugin handle and attach to it as a subscriber
@@ -806,12 +539,7 @@ function newRemoteFeed(id, display, audio, video) {
 						// <<-- remoteFeed가 들어오고 방에 접속하기까지의 과정
 						remoteFeed.rfid = msg["id"];
 						remoteFeed.rfdisplay = msg["display"];
-						if(!remoteFeed.spinner) {
-							var target = document.getElementById('videoremote'+remoteFeed.rfindex);
-							remoteFeed.spinner = new Spinner({top:100}).spin(target);
-						} else {
-							remoteFeed.spinner.spin();
-						}
+						
 						Janus.log("Successfully attached to feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") in room " + msg["room"]);
 						$('#remote'+remoteFeed.rfindex).removeClass('hide').html(remoteFeed.rfdisplay).show();
 						// -->> remoteFeed가 들어오고 방에 접속하기까지의 과정
@@ -1079,4 +807,366 @@ function updateSimulcastButtons(feed, substream, temporal) {
 		$('#tl' + index + '-1').removeClass('btn-primary btn-success').addClass('btn-primary');
 		$('#tl' + index + '-0').removeClass('btn-primary btn-success').addClass('btn-primary');
 	}
+}
+
+
+
+function localScreenFeed() {
+	janus.attach(
+		{
+			plugin: "janus.plugin.videoroom",
+			opaqueId: opaqueId,
+			success: function(pluginHandle) {
+				screenHandle = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
+				Janus.log("Plugin attached! (" + screenHandle.getPlugin() + ", id=" + screenHandle.getId() + ")");
+				Janus.log("  -- This is a publisher/manager in Screen Sharing 테스트합니다.--");
+				Janus.log("Screen sharing session created: " + myroom);
+				
+
+				role = "publisher";
+				var register = {
+					request: "join",
+					room: myroom,
+					ptype: "publisher",
+					id: 1234,
+				};
+				screenHandle.send({ message: register });
+			},
+			error: function(error) {
+				Janus.error("  -- Error attaching plugin...", error);
+				bootbox.alert("Error attaching plugin... " + error);
+			},
+			consentDialog: function(on) {
+			},
+			iceState: function(state) {
+				Janus.log("ICE state changed to " + state);
+			},
+			mediaState: function(medium, on) {
+				Janus.log("Janus " + (on ? "started" : "stopped") + " receiving our " + medium);
+			},
+			webrtcState: function(on) {
+
+			},
+			// 여기부터 작업
+			onmessage: function(msg, jsep) {
+				Janus.debug(" ::: Got a message (publisher) on Screen Sharing :::", msg);
+				var event = msg["videoroom"];
+				Janus.debug("Event: " + event);
+
+				if(event) {
+					if(event === "joined") {
+						// Publisher/manager created, negotiate WebRTC and attach to existing feeds, if any
+						myid = msg["id"];
+						mypvtid = msg["private_id"];
+						Janus.log("Successfully joined room " + msg["room"] + " with ID " + myid, "and mypvtid "+ mypvtid);
+						
+						// publisher가 최초로 참가했을 때, 기존에 방에 존재하던 참가자들의 리스트를 출력
+						if(role === "publisher") {
+							Janus.debug("Negotiating WebRTC stream for our screen (capture " + "screen" + ")");
+							
+							publishOwnScreenFeed();
+
+							var list = msg["publishers"];
+							Janus.debug("Got a list of available publishers/feeds:", list);
+							for(var f in list) {
+								var id = list[f]["id"];
+								var display = list[f]["display"];
+								if (id == 1234)
+									newScreenRemoteFeed(id, display);
+							}
+						}
+					} else {
+							if(msg["publishers"]) {
+								var list = msg["publishers"];
+								Janus.debug("Got a list of available publishers/feeds:", list);
+								for(var f in list) {
+									var id = list[f]["id"];
+									var display = list[f]["display"];
+									Janus.debug("  >> [" + id + "] " + display);
+									if (id == 1234)
+										newScreenRemoteFeed(id, display)
+								}
+							}
+					}
+						
+				} else if(event === "destroyed") {
+						// The room has been destroyed
+						Janus.warn("The room has been destroyed!");
+						bootbox.alert("The room has been destroyed", function() {
+							window.location.reload();
+						});
+						// 이미 publisher가 들어가 있는 상태에서 event 발생한 경우 ex) 참가자 추가
+					} else if(event === "event") {
+						// Any new feed to attach to?
+						if(role === "listener" && msg["publishers"]) {
+							// var list = msg["publishers"];
+							Janus.debug("Got a list of available publishers/feeds:", list);
+							for(var f in list) {
+								var id = list[f]["id"];
+								var display = list[f]["display"];
+								// newRemoteFeed(id, display);
+							}
+						} else if(msg["leaving"]) {
+							// One of the publishers has gone away?
+							var leaving = msg["leaving"];
+							Janus.log("Publisher left: " + leaving);
+							var remoteFeed = null;
+							for(var i=1; i<6; i++) {
+								if(feeds[i] && feeds[i].rfid == leaving) {
+									remoteFeed = feeds[i];
+									break;
+								}
+							}
+							if(remoteFeed != null) {
+								Janus.debug("Feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") has left the room, detaching");
+								$('#remote'+remoteFeed.rfindex).empty().hide();
+								$('#videoremote'+remoteFeed.rfindex).empty();
+								feeds[remoteFeed.rfindex] = null;
+								remoteFeed.detach();
+							}
+						} else if(msg["unpublished"]) {
+							// One of the publishers has unpublished?
+							var unpublished = msg["unpublished"];
+							Janus.log("Publisher left: " + unpublished);
+							if(unpublished === 'ok') {
+								// That's us
+								screenHandle.hangup();
+								return;
+							}
+							var remoteFeed = null;
+							for(var i=1; i<6; i++) {
+								if(feeds[i] && feeds[i].rfid == unpublished) {
+									remoteFeed = feeds[i];
+									break;
+								}
+							}
+							if(remoteFeed != null) {
+								Janus.debug("Feed " + remoteFeed.rfid + " (" + remoteFeed.rfdisplay + ") has left the room, detaching");
+								$('#remote'+remoteFeed.rfindex).empty().hide();
+								$('#videoremote'+remoteFeed.rfindex).empty();
+								feeds[remoteFeed.rfindex] = null;
+								remoteFeed.detach();
+							}
+						} else if(msg["error"]) {
+							if(msg["error_code"] === 426) {
+								// This is a "no such room" error: give a more meaningful description
+								bootbox.alert(
+									"<p>Apparently room <code>" + myroom + "</code> (the one this demo uses as a test room) " +
+									"does not exist...</p><p>Do you have an updated <code>janus.plugin.videoroom.jcfg</code> " +
+									"configuration file? If not, make sure you copy the details of room <code>" + myroom + "</code> " +
+									"from that sample in your current configuration file, then restart Janus and try again."
+								);
+							} else {
+								bootbox.alert(msg["error"]);
+							}
+						}
+					}
+				
+				if(jsep) {
+					Janus.debug("Handling SDP as well...", jsep);
+					screenHandle.handleRemoteJsep({ jsep: jsep });
+				}
+
+			},
+			// 여기부터 작업
+			onlocalstream: function(stream) {
+				console.log("onlocalstream(on Screen handle) 실행 !");
+				Janus.debug(" ::: Got a local Screen stream :::", stream);
+				mystream = stream;
+
+				// <<-- 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
+				// 			여기서 Screen Sharing video tag를 생성해서 함께 띄울 환경 마련
+				if($('#myvideo').length === 1) {
+					// Add an Screen tag
+					$('#videolocal').append('<video class="rounded centered" id="screenvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
+					$('#unpublish').click(unpublishOwnFeed);
+				}
+
+				Janus.attachMediaStream($('#screenvideo').get(0), stream);
+				$("#myvideo").get(0).muted = "muted";
+				// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
+			},
+			onremotestream: function(stream) {
+				// The publisher stream is sendonly, we don't expect anything here
+			},
+			oncleanup: function() {
+				Janus.log(" ::: Got a cleanup notification: we are unpublished now :::");
+				mystream = null;
+				$('#videolocal').html('<button id="publish" class="btn btn-primary">Publish</button>');
+				$('#publish').click(function() { publishOwnFeed(true); });
+				$("#videolocal").parent().parent().unblock();
+				$('#bitrate').parent().parent().addClass('hide');
+				$('#bitrate a').unbind('click');
+			}
+		});
+}
+
+function newScreenRemoteFeed(id, display) {
+	// A new feed has been published, create a new plugin handle and attach to it as a listener
+	
+	var screenRemoteFeed = null;
+	janus.attach(
+		{
+			plugin: "janus.plugin.videoroom",
+			opaqueId: opaqueId,
+			success: function(pluginHandle) {
+				screenRemoteFeed = pluginHandle;
+				Janus.log("Plugin attached! (" + screenRemoteFeed.getPlugin() + ", id=" + screenRemoteFeed.getId() + ")");
+				Janus.log("  -- This is a subscriber--");
+				// We wait for the plugin to send us an offer
+				var subscribe = {
+					request: "join",
+					room: room,
+					ptype: "subscriber",
+					feed: id
+				};
+				screenRemoteFeed.send({ message: subscribe });
+			},
+			error: function(error) {
+				Janus.error("  -- Error attaching plugin...", error);
+				bootbox.alert("Error attaching plugin... " + error);
+			},
+			onmessage: function(msg, jsep) {
+				Janus.debug(" ::: Got a message (subscriber in screen Sharing) :::", msg);
+				var event = msg["videoroom"];
+				Janus.debug("Event: " + event);
+				if(event) {
+					if(event === "attached") {
+						// Subscriber created and attached
+						for(var i=1;i<6;i++) {
+							if(!screenFeeds[i]) {
+								screenFeeds[i] = screenRemoteFeed;
+								screenRemoteFeed.rfindex = i; // remoteFeed에 번호 속성 추가
+								break;
+							}
+						}
+						// <<-- remoteFeed가 들어오고 방에 접속하기까지의 과정
+						screenRemoteFeed.rfid = msg["id"];
+						screenRemoteFeed.rfdisplay = msg["display"];
+						Janus.log("Successfully attached to feed " + screenRemoteFeed.rfid + " (" + screenRemoteFeed.rfdisplay + ") in room " + msg["room"]);
+					} else {
+						// What has just happened?
+					}
+				}
+				if(jsep) {
+					Janus.debug("Handling SDP as well...", jsep);
+					// Answer and attach
+					screenRemoteFeed.createAnswer(
+						{
+							jsep: jsep,
+
+							media: { audioSend: false, videoSend: false },	// We want recvonly audio/video
+							success: function(jsep) {
+								Janus.debug("Got SDP!", jsep);
+								var body = { request: "start", room: myroom };
+								screenRemoteFeed.send({ message: body, jsep: jsep });
+							},
+							error: function(error) {
+								Janus.error("WebRTC error:", error);
+								bootbox.alert("WebRTC error... " + error.message);
+							}
+						});
+				}
+			},
+			onlocalstream: function(stream) {
+				// The subscriber stream is recvonly, we don't expect anything here
+			},
+			iceState: function(state) {
+				Janus.log("ICE state of this WebRTC PeerConnection (feed #" + remoteFeed.rfindex + ") changed to " + state);
+			},
+			webrtcState: function(on) {
+				Janus.log("Janus says this WebRTC PeerConnection (feed #" + remoteFeed.rfindex + ") is " + (on ? "up" : "down") + " now");
+			},
+			onremotestream: function(stream) {
+				if($('#screenvideo').length === 0) {
+					// No remote video yet
+					$('#screencapture').append('<video class="rounded centered" id="waitingvideo" width="100%" height="100%" />');
+					$('#screencapture').append('<video class="rounded centered hide" id="screenvideo" width="100%" height="100%" playsinline/>');
+					$('#screenvideo').get(0).volume = 0;
+					// Show the video, hide the spinner and show the resolution when we get a playing event
+					$("#screenvideo").bind("playing", function () {
+						$('#waitingvideo').remove();
+						$('#screenvideo').removeClass('hide');
+						if(spinner)
+							spinner.stop();
+						spinner = null;
+					});
+				}
+				
+
+
+				Janus.debug("Remote feed #" + screenRemoteFeed.rfindex + ", stream:", stream);
+				var addButtons = false;
+				if($('#remotevideo'+screenRemoteFeed.rfindex).length === 0) {
+					addButtons = true;
+					// No remote video yet
+					$('#videoremote'+screenRemoteFeed.rfindex).append('<video class="rounded centered" id="waitingvideo' + screenRemoteFeed.rfindex + '" width="100%" height="100%" />');
+					$('#videoremote'+screenRemoteFeed.rfindex).append('<video class="rounded centered relative hide" id="remotevideo' + screenRemoteFeed.rfindex + '" width="100%" height="100%" autoplay playsinline/>');
+					$('#videoremote'+screenRemoteFeed.rfindex).append(
+						'<span class="label label-primary hide" id="curres'+screenRemoteFeed.rfindex+'" style="position: absolute; bottom: 0px; left: 0px; margin: 15px;"></span>' +
+						'<span class="label label-info hide" id="curbitrate'+screenRemoteFeed.rfindex+'" style="position: absolute; bottom: 0px; right: 0px; margin: 15px;"></span>');
+					// <<-- remoteStream 데이터 붙이기 전 준비 작업
+					// Show the video, hide the spinner and show the resolution when we get a playing event
+					$("#remotevideo"+screenRemoteFeed.rfindex).bind("playing", function () {
+						if(screenRemoteFeed.spinner)
+							screenRemoteFeed.spinner.stop();
+						screenRemoteFeed.spinner = null;
+						$('#waitingvideo'+screenRemoteFeed.rfindex).remove();
+						if(this.videoWidth)
+							$('#remotevideo'+screenRemoteFeed.rfindex).removeClass('hide').show();
+						var width = this.videoWidth;
+						var height = this.videoHeight;
+						$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
+						if(Janus.webRTCAdapter.browserDetails.browser === "firefox") {
+							// Firefox Stable has a bug: width and height are not immediately available after a playing
+							setTimeout(function() {
+								var width = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoWidth;
+								var height = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoHeight;
+								$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
+							}, 2000);
+						}
+					});
+					// -->> remoteStream 데이터 붙이기 전 준비 작업
+				}
+				Janus.attachMediaStream($('#remotevideo'+screenRemoteFeed.rfindex).get(0), stream);
+				var videoTracks = stream.getVideoTracks();
+				if(!videoTracks || videoTracks.length === 0) {
+					// No remote video
+					$('#remotevideo'+screenRemoteFeed.rfindex).hide();
+					if($('#videoremote'+screenRemoteFeed.rfindex + ' .no-video-container').length === 0) {
+						$('#videoremote'+screenRemoteFeed.rfindex).append(
+							'<div class="no-video-container">' +
+								'<i class="fa fa-video-camera fa-5 no-video-icon"></i>' +
+								'<span class="no-video-text">No remote video available</span>' +
+							'</div>');
+					}
+				} else {
+					$('#videoremote'+screenRemoteFeed.rfindex+ ' .no-video-container').remove();
+					$('#remotevideo'+screenRemoteFeed.rfindex).removeClass('hide').show();
+				}
+				if(!addButtons)
+					return;
+				if(Janus.webRTCAdapter.browserDetails.browser === "chrome" || Janus.webRTCAdapter.browserDetails.browser === "firefox" ||
+						Janus.webRTCAdapter.browserDetails.browser === "safari") {
+					$('#curbitrate'+screenRemoteFeed.rfindex).removeClass('hide').show();
+					bitrateTimer[screenRemoteFeed.rfindex] = setInterval(function() {
+						// Display updated bitrate, if supported
+						var bitrate = screenRemoteFeed.getBitrate();
+						$('#curbitrate'+screenRemoteFeed.rfindex).text(bitrate);
+						// Check if the resolution changed too
+						var width = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoWidth;
+						var height = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoHeight;
+						if(width > 0 && height > 0)
+							$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
+					}, 1000);
+				}
+			},
+			oncleanup: function() {
+				Janus.log(" ::: Got a cleanup notification (remote feed " + id + ") :::");
+				$('#waitingvideo').remove();
+				if(spinner)
+					spinner.stop();
+				spinner = null;
+			}
+		});
 }
