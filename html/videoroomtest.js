@@ -33,6 +33,7 @@ var doSimulcast = (getQueryStringValue("simulcast") === "yes" || getQueryStringV
 var doSimulcast2 = (getQueryStringValue("simulcast2") === "yes" || getQueryStringValue("simulcast2") === "true");
 var subscriber_mode = (getQueryStringValue("subscriber-mode") === "yes" || getQueryStringValue("subscriber-mode") === "true");
 
+
 $(document).ready(function() {
 	// Initialize the library (all console debuggers enabled)
 	Janus.init({debug: "all", callback: function() {
@@ -142,6 +143,7 @@ $(document).ready(function() {
 												$('#videos').removeClass('hide').show();
 											} else {
 												publishOwnFeed(true);
+												localScreenFeed();
 											}
 											// Any new feed to attach to?
 											// publisher가 최초로 참가했을 때, 기존에 방에 존재하던 참가자들의 리스트를 출력
@@ -154,14 +156,11 @@ $(document).ready(function() {
 													var audio = list[f]["audio_codec"];
 													var video = list[f]["video_codec"];
 													Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-													console.log("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
-													// Screen User가 아닌 경우에만 RemoteFeed 추가
-													if (id != 1234)
+													if (display !== "screen")
 														newRemoteFeed(id, display, audio, video);
 												}
 											}
 										} else if(event === "destroyed") {
-											// The room has been destroyed
 											Janus.warn("The room has been destroyed!");
 											bootbox.alert("The room has been destroyed", function() {
 												window.location.reload();
@@ -179,7 +178,7 @@ $(document).ready(function() {
 													var video = list[f]["video_codec"];
 													Janus.debug("  >> [" + id + "] " + display + " (audio: " + audio + ", video: " + video + ")");
 													// Screen User가 아닌 경우에만 RemoteFeed 추가
-													if (id != 1234)
+													if (display !== "screen")
 														newRemoteFeed(id, display, audio, video);
 												}
 											} else if(msg["leaving"]) {
@@ -296,14 +295,14 @@ $(document).ready(function() {
 									// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
 									if(sfutest.webrtcStuff.pc.iceConnectionState !== "completed" &&
 											sfutest.webrtcStuff.pc.iceConnectionState !== "connected") {
-										// $("#videolocal").parent().parent().block({
-										// 	message: '<b>Publishing...</b>',
-										// 	css: {
-										// 		border: 'none',
-										// 		backgroundColor: 'transparent',
-										// 		color: 'white'
-										// 	}
-										// });
+										$("#videolocal").parent().parent().block({
+											message: '<b>Publishing...</b>',
+											css: {
+												border: 'none',
+												backgroundColor: 'transparent',
+												color: 'white'
+											}
+										});
 									}
 									var videoTracks = stream.getVideoTracks();
 									if(!videoTracks || videoTracks.length === 0) {
@@ -320,9 +319,6 @@ $(document).ready(function() {
 										$('#videolocal .no-video-container').remove();
 										$('#myvideo').removeClass('hide').show();
 									}
-
-									
-									localScreenFeed();
 								},
 								onremotestream: function(stream) {
 									// The publisher stream is sendonly, we don't expect anything here
@@ -410,26 +406,12 @@ function publishOwnFeed(useAudio) {
 	$('#publish').attr('disabled', true).unbind('click');
 	sfutest.createOffer(
 		{
-			// Add data:true here if you want to publish datachannels as well
-			media: {audioRecv: false, videoRecv: false, audioSend: useAudio, videoSend: true },	// Publishers are sendonly
-			// If you want to test simulcasting (Chrome and Firefox only), then
-			// pass a ?simulcast=true when opening this demo page: it will turn
-			// the following 'simulcast' property to pass to janus.js to true
+			media: {audioRecv: false, videoRecv: false, audioSend: useAudio, videoSend: true },	
 			simulcast: doSimulcast,
 			simulcast2: doSimulcast2,
 			success: function(jsep) {
 				Janus.debug("Got publisher SDP!", jsep);
 				var publish = { request: "configure", audio: useAudio, video: true };
-				// You can force a specific codec to use when publishing by using the
-				// audiocodec and videocodec properties, for instance:
-				// 		publish["audiocodec"] = "opus"
-				// to force Opus as the audio codec to use, or:
-				// 		publish["videocodec"] = "vp9"
-				// to force VP9 as the videocodec to use. In both case, though, forcing
-				// a codec will only work if: (1) the codec is actually in the SDP (and
-				// so the browser supports it), and (2) the codec is in the list of
-				// allowed codecs in a room. With respect to the point (2) above,
-				// refer to the text in janus.plugin.videoroom.jcfg for more details
 				sfutest.send({ message: publish, jsep: jsep });
 			},
 			error: function(error) {
@@ -809,8 +791,6 @@ function updateSimulcastButtons(feed, substream, temporal) {
 	}
 }
 
-
-
 function localScreenFeed() {
 	janus.attach(
 		{
@@ -819,16 +799,15 @@ function localScreenFeed() {
 			success: function(pluginHandle) {
 				screenHandle = pluginHandle;	// pluginHandle 은 변수명 그대로의 의미를 지닌다.
 				Janus.log("Plugin attached! (" + screenHandle.getPlugin() + ", id=" + screenHandle.getId() + ")");
-				Janus.log("  -- This is a publisher/manager in Screen Sharing 테스트합니다.--");
+				Janus.log("  -- This is a publisher/manager in Screen Sharing 테스트합니다. --");
 				Janus.log("Screen sharing session created: " + myroom);
-				
 
 				role = "publisher";
 				var register = {
 					request: "join",
 					room: myroom,
 					ptype: "publisher",
-					id: 1234,
+					display: "screen",
 				};
 				screenHandle.send({ message: register });
 			},
@@ -883,7 +862,7 @@ function localScreenFeed() {
 									var id = list[f]["id"];
 									var display = list[f]["display"];
 									Janus.debug("  >> [" + id + "] " + display);
-									if (id == 1234)
+									if (display === "screen")
 										newScreenRemoteFeed(id, display)
 								}
 							}
@@ -904,7 +883,8 @@ function localScreenFeed() {
 							for(var f in list) {
 								var id = list[f]["id"];
 								var display = list[f]["display"];
-								// newRemoteFeed(id, display);
+								if (display === "screen")
+										newScreenRemoteFeed(id, display)
 							}
 						} else if(msg["leaving"]) {
 							// One of the publishers has gone away?
