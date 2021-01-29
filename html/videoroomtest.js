@@ -143,7 +143,7 @@ $(document).ready(function() {
 												$('#videos').removeClass('hide').show();
 											} else {
 												publishOwnFeed(true);
-												localScreenFeed();
+												localScreenFeed(msg["publishers"]["id"]);
 											}
 											// Any new feed to attach to?
 											// publisher가 최초로 참가했을 때, 기존에 방에 존재하던 참가자들의 리스트를 출력
@@ -595,14 +595,6 @@ function newRemoteFeed(id, display, audio, video) {
 						var width = this.videoWidth;
 						var height = this.videoHeight;
 						$('#curres'+remoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-						if(Janus.webRTCAdapter.browserDetails.browser === "firefox") {
-							// Firefox Stable has a bug: width and height are not immediately available after a playing
-							setTimeout(function() {
-								var width = $("#remotevideo"+remoteFeed.rfindex).get(0).videoWidth;
-								var height = $("#remotevideo"+remoteFeed.rfindex).get(0).videoHeight;
-								$('#curres'+remoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-							}, 2000);
-						}
 					});
 					// -->> remoteStream 데이터 붙이기 전 준비 작업
 				}
@@ -624,20 +616,8 @@ function newRemoteFeed(id, display, audio, video) {
 				}
 				if(!addButtons)
 					return;
-				if(Janus.webRTCAdapter.browserDetails.browser === "chrome" || Janus.webRTCAdapter.browserDetails.browser === "firefox" ||
-						Janus.webRTCAdapter.browserDetails.browser === "safari") {
-					$('#curbitrate'+remoteFeed.rfindex).removeClass('hide').show();
-					bitrateTimer[remoteFeed.rfindex] = setInterval(function() {
-						// Display updated bitrate, if supported
-						var bitrate = remoteFeed.getBitrate();
-						$('#curbitrate'+remoteFeed.rfindex).text(bitrate);
-						// Check if the resolution changed too
-						var width = $("#remotevideo"+remoteFeed.rfindex).get(0).videoWidth;
-						var height = $("#remotevideo"+remoteFeed.rfindex).get(0).videoHeight;
-						if(width > 0 && height > 0)
-							$('#curres'+remoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-					}, 1000);
-				}
+				
+					
 			},
 			oncleanup: function() {
 				Janus.log(" ::: Got a cleanup notification (remote feed " + id + ") :::");
@@ -791,7 +771,7 @@ function updateSimulcastButtons(feed, substream, temporal) {
 	}
 }
 
-function localScreenFeed() {
+function localScreenFeed(id) {
 	janus.attach(
 		{
 			plugin: "janus.plugin.videoroom",
@@ -808,6 +788,7 @@ function localScreenFeed() {
 					room: myroom,
 					ptype: "publisher",
 					display: "screen",
+					feed :id,
 				};
 				screenHandle.send({ message: register });
 			},
@@ -850,7 +831,7 @@ function localScreenFeed() {
 							for(var f in list) {
 								var id = list[f]["id"];
 								var display = list[f]["display"];
-								if (id == 1234)
+								if (display === "screen")
 									newScreenRemoteFeed(id, display);
 							}
 						}
@@ -877,7 +858,7 @@ function localScreenFeed() {
 						// 이미 publisher가 들어가 있는 상태에서 event 발생한 경우 ex) 참가자 추가
 					} else if(event === "event") {
 						// Any new feed to attach to?
-						if(role === "listener" && msg["publishers"]) {
+						if(msg["publishers"]) {
 							// var list = msg["publishers"];
 							Janus.debug("Got a list of available publishers/feeds:", list);
 							for(var f in list) {
@@ -958,11 +939,11 @@ function localScreenFeed() {
 				// 			여기서 Screen Sharing video tag를 생성해서 함께 띄울 환경 마련
 				if($('#myvideo').length === 1) {
 					// Add an Screen tag
-					$('#videolocal').append('<video class="rounded centered" id="screenvideo" width="100%" height="100%" autoplay playsinline muted="muted"/>');
+					$('#videolocal').append('<video class="rounded centered" id="videolocal-screen" width="100%" height="100%" autoplay playsinline muted="muted"/>');
 					$('#unpublish').click(unpublishOwnFeed);
 				}
 
-				Janus.attachMediaStream($('#screenvideo').get(0), stream);
+				Janus.attachMediaStream($('#videolocal-screen').get(0), stream);
 				$("#myvideo").get(0).muted = "muted";
 				// -->> 우선 publisher 가 자신의 영상과 이름을 띄울 html tag를 생성한다.
 			},
@@ -992,11 +973,18 @@ function newScreenRemoteFeed(id, display) {
 			success: function(pluginHandle) {
 				screenRemoteFeed = pluginHandle;
 				Janus.log("Plugin attached! (" + screenRemoteFeed.getPlugin() + ", id=" + screenRemoteFeed.getId() + ")");
-				Janus.log("  -- This is a subscriber--");
+				Janus.log("  -- This is a subscriber --");
+				for(var i=1;i<6;i++) {
+					if(!screenFeeds[i]) {
+						screenFeeds[i] = screenRemoteFeed;
+						screenRemoteFeed.rfindex = i; // remoteFeed에 번호 속성 추가
+						break;
+					}
+				}
 				// We wait for the plugin to send us an offer
 				var subscribe = {
 					request: "join",
-					room: room,
+					room: myroom,
 					ptype: "subscriber",
 					feed: id
 				};
@@ -1013,13 +1001,6 @@ function newScreenRemoteFeed(id, display) {
 				if(event) {
 					if(event === "attached") {
 						// Subscriber created and attached
-						for(var i=1;i<6;i++) {
-							if(!screenFeeds[i]) {
-								screenFeeds[i] = screenRemoteFeed;
-								screenRemoteFeed.rfindex = i; // remoteFeed에 번호 속성 추가
-								break;
-							}
-						}
 						// <<-- remoteFeed가 들어오고 방에 접속하기까지의 과정
 						screenRemoteFeed.rfid = msg["id"];
 						screenRemoteFeed.rfdisplay = msg["display"];
@@ -1052,94 +1033,22 @@ function newScreenRemoteFeed(id, display) {
 				// The subscriber stream is recvonly, we don't expect anything here
 			},
 			iceState: function(state) {
-				Janus.log("ICE state of this WebRTC PeerConnection (feed #" + remoteFeed.rfindex + ") changed to " + state);
+				Janus.log("ICE state of this WebRTC PeerConnection (feed #" + screenRemoteFeed.rfindex + ") changed to " + state);
 			},
 			webrtcState: function(on) {
-				Janus.log("Janus says this WebRTC PeerConnection (feed #" + remoteFeed.rfindex + ") is " + (on ? "up" : "down") + " now");
+				Janus.log("Janus says this WebRTC PeerConnection (feed #" + screenRemoteFeed.rfindex + ") is " + (on ? "up" : "down") + " now");
 			},
 			onremotestream: function(stream) {
-				if($('#screenvideo').length === 0) {
-					// No remote video yet
-					$('#screencapture').append('<video class="rounded centered" id="waitingvideo" width="100%" height="100%" />');
-					$('#screencapture').append('<video class="rounded centered hide" id="screenvideo" width="100%" height="100%" playsinline/>');
-					$('#screenvideo').get(0).volume = 0;
-					// Show the video, hide the spinner and show the resolution when we get a playing event
-					$("#screenvideo").bind("playing", function () {
-						$('#waitingvideo').remove();
-						$('#screenvideo').removeClass('hide');
-						if(spinner)
-							spinner.stop();
-
-					});
-				}
-				
+				console.log("onlocalstream(on Screen handle) 실행 !");
+				Janus.debug(" ::: Got a local Screen stream :::", stream);
+				mystream = stream;
 
 
-				Janus.debug("Remote feed #" + screenRemoteFeed.rfindex + ", stream:", stream);
-				var addButtons = false;
-				if($('#remotevideo'+screenRemoteFeed.rfindex).length === 0) {
-					addButtons = true;
-					// No remote video yet
-					$('#videoremote'+screenRemoteFeed.rfindex).append('<video class="rounded centered" id="waitingvideo' + screenRemoteFeed.rfindex + '" width="100%" height="100%" />');
-					$('#videoremote'+screenRemoteFeed.rfindex).append('<video class="rounded centered relative hide" id="remotevideo' + screenRemoteFeed.rfindex + '" width="100%" height="100%" autoplay playsinline/>');
-					$('#videoremote'+screenRemoteFeed.rfindex).append(
-						'<span class="label label-primary hide" id="curres'+screenRemoteFeed.rfindex+'" style="position: absolute; bottom: 0px; left: 0px; margin: 15px;"></span>' +
-						'<span class="label label-info hide" id="curbitrate'+screenRemoteFeed.rfindex+'" style="position: absolute; bottom: 0px; right: 0px; margin: 15px;"></span>');
-					// <<-- remoteStream 데이터 붙이기 전 준비 작업
-					// Show the video, hide the spinner and show the resolution when we get a playing event
-					$("#remotevideo"+screenRemoteFeed.rfindex).bind("playing", function () {
-						if(screenRemoteFeed.spinner)
-							screenRemoteFeed.spinner.stop();
-						screenRemoteFeed.spinner = null;
-						$('#waitingvideo'+screenRemoteFeed.rfindex).remove();
-						if(this.videoWidth)
-							$('#remotevideo'+screenRemoteFeed.rfindex).removeClass('hide').show();
-						var width = this.videoWidth;
-						var height = this.videoHeight;
-						$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-						if(Janus.webRTCAdapter.browserDetails.browser === "firefox") {
-							// Firefox Stable has a bug: width and height are not immediately available after a playing
-							setTimeout(function() {
-								var width = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoWidth;
-								var height = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoHeight;
-								$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-							}, 2000);
-						}
-					});
-					// -->> remoteStream 데이터 붙이기 전 준비 작업
+				if($('#screenremote' + screenRemoteFeed.rfindex).length === 0) {
+					$('#videoremote' + screenRemoteFeed.rfindex).append('<video class="rounded centered" id="screenremote' + screenRemoteFeed.rfindex + '" width="100%" height="100%" autoplay playsinline muted="muted"/>');
 				}
-				Janus.attachMediaStream($('#remotevideo'+screenRemoteFeed.rfindex).get(0), stream);
-				var videoTracks = stream.getVideoTracks();
-				if(!videoTracks || videoTracks.length === 0) {
-					// No remote video
-					$('#remotevideo'+screenRemoteFeed.rfindex).hide();
-					if($('#videoremote'+screenRemoteFeed.rfindex + ' .no-video-container').length === 0) {
-						$('#videoremote'+screenRemoteFeed.rfindex).append(
-							'<div class="no-video-container">' +
-								'<i class="fa fa-video-camera fa-5 no-video-icon"></i>' +
-								'<span class="no-video-text">No remote video available</span>' +
-							'</div>');
-					}
-				} else {
-					$('#videoremote'+screenRemoteFeed.rfindex+ ' .no-video-container').remove();
-					$('#remotevideo'+screenRemoteFeed.rfindex).removeClass('hide').show();
-				}
-				if(!addButtons)
-					return;
-				if(Janus.webRTCAdapter.browserDetails.browser === "chrome" || Janus.webRTCAdapter.browserDetails.browser === "firefox" ||
-						Janus.webRTCAdapter.browserDetails.browser === "safari") {
-					$('#curbitrate'+screenRemoteFeed.rfindex).removeClass('hide').show();
-					bitrateTimer[screenRemoteFeed.rfindex] = setInterval(function() {
-						// Display updated bitrate, if supported
-						var bitrate = screenRemoteFeed.getBitrate();
-						$('#curbitrate'+screenRemoteFeed.rfindex).text(bitrate);
-						// Check if the resolution changed too
-						var width = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoWidth;
-						var height = $("#remotevideo"+screenRemoteFeed.rfindex).get(0).videoHeight;
-						if(width > 0 && height > 0)
-							$('#curres'+screenRemoteFeed.rfindex).removeClass('hide').text(width+'x'+height).show();
-					}, 1000);
-				}
+
+				Janus.attachMediaStream($('#screenremote' + screenRemoteFeed.rfindex).get(0), stream);
 			},
 			oncleanup: function() {
 				Janus.log(" ::: Got a cleanup notification (remote feed " + id + ") :::");
